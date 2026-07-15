@@ -38,6 +38,9 @@ app.use(express.urlencoded({ extended: true }));
 // 请求日志
 app.use(requestLogger);
 
+// 托管前端静态文件
+app.use(express.static(path.join(__dirname, '../../client/dist')));
+
 // 路由
 const fundRoutes = require('./routes/fund');
 app.use('/api/funds', fundRoutes);
@@ -62,9 +65,13 @@ app.get('/api/ws/stats', (req, res) => {
   res.json(Response.success(websocket.getStats(), '获取 WebSocket 状态成功'));
 });
 
-// 404 处理
-app.use((req, res) => {
-  res.status(404).json(Response.notFound(`接口 ${req.originalUrl} 不存在`));
+// SPA 路由支持：非 API 请求返回前端页面
+app.get('*', (req, res) => {
+  if (!req.path.startsWith('/api/')) {
+    res.sendFile(path.join(__dirname, '../../client/dist/index.html'));
+  } else {
+    res.status(404).json(Response.notFound(`接口 ${req.originalUrl} 不存在`));
+  }
 });
 
 // 全局错误处理中间件

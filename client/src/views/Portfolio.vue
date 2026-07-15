@@ -188,6 +188,8 @@ const pieChartRef = ref(null)
 const frontierChartRef = ref(null)
 let pieChartInstance = null
 let frontierChartInstance = null
+let pieResizeHandler = null
+let frontierResizeHandler = null
 
 const form = reactive({
   riskLevel: 'balanced',
@@ -235,6 +237,8 @@ async function doOptimize() {
 // ─── 饼图 ───
 function initPieChart() {
   if (!pieChartRef.value || !result.value) return
+  // 清除旧的 resize 监听
+  if (pieResizeHandler) window.removeEventListener('resize', pieResizeHandler)
   pieChartInstance?.dispose()
   pieChartInstance = echartsInit(pieChartRef.value)
 
@@ -256,14 +260,19 @@ function initPieChart() {
     }],
   })
 
-  const handler = () => pieChartInstance?.resize()
-  window.addEventListener('resize', handler)
-  watch(() => pieChartInstance, () => window.removeEventListener('resize', handler), { once: true })
+  pieResizeHandler = () => {
+    if (pieChartInstance && !pieChartInstance.isDisposed()) {
+      pieChartInstance.resize()
+    }
+  }
+  window.addEventListener('resize', pieResizeHandler)
 }
 
 // ─── 有效前沿散点图 ───
 function initFrontierChart() {
   if (!frontierChartRef.value || !result.value) return
+  // 清除旧的 resize 监听
+  if (frontierResizeHandler) window.removeEventListener('resize', frontierResizeHandler)
   frontierChartInstance?.dispose()
   frontierChartInstance = echartsInit(frontierChartRef.value)
 
@@ -297,9 +306,12 @@ function initFrontierChart() {
     series,
   })
 
-  const handler = () => frontierChartInstance?.resize()
-  window.addEventListener('resize', handler)
-  watch(() => frontierChartInstance, () => window.removeEventListener('resize', handler), { once: true })
+  frontierResizeHandler = () => {
+    if (frontierChartInstance && !frontierChartInstance.isDisposed()) {
+      frontierChartInstance.resize()
+    }
+  }
+  window.addEventListener('resize', frontierResizeHandler)
 }
 
 watch(result, (val) => {
@@ -309,6 +321,8 @@ watch(result, (val) => {
 })
 
 onBeforeUnmount(() => {
+  if (pieResizeHandler) window.removeEventListener('resize', pieResizeHandler)
+  if (frontierResizeHandler) window.removeEventListener('resize', frontierResizeHandler)
   pieChartInstance?.dispose()
   frontierChartInstance?.dispose()
 })

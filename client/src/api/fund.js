@@ -32,7 +32,7 @@ export function getHotList() {
 
 /** AI 智能推荐（DeepSeek 驱动） */
 export function aiRecommend(data) {
-  return request.post('/ai/recommend', data)
+  return request.post('/ai/recommend', data, { timeout: 60000 })
 }
 
 /** AI 服务状态 */
