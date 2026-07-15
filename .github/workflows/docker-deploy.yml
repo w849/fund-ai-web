@@ -1,0 +1,60 @@
+name: CD - Docker 镜像部署（备选方案）
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ${{ secrets.DOCKER_REGISTRY || 'ghcr.io' }}
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  docker:
+    name: 构建并推送 Docker 镜像
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 登录容器仓库
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 提取 Docker 元数据
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,format=short
+            type=ref,event=branch
+          labels: |
+            org.opencontainers.image.title=AI 智能选基金
+            org.opencontainers.image.description=基于 Vue 3 + Node.js + DeepSeek AI 的全栈智能选基金平台
+            org.opencontainers.image.version=${{ github.ref_name }}
+
+      - name: 构建并推送 Docker 镜像
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: 部署通知
+        if: success()
+        run: |
+          echo "✅ Docker 镜像已推送: ${{ steps.meta.outputs.tags }}"

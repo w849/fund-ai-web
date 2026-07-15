@@ -1,0 +1,15 @@
+{
+  "name": "fund-ai-web",
+  "version": "1.0.0",
+  "description": "AI 智能选基金 - 全栈项目",
+  "private": true,
+  "scripts": {
+    "test": "npm run test --prefix server && npm run test --prefix client",
+    "test:backend": "npm run test --prefix server",
+    "test:frontend": "npm run test --prefix client",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1"
+  }
+}

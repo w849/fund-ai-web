@@ -1,0 +1,142 @@
+name: CD - 自动部署
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: '部署环境'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - production
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '18.x'
+
+jobs:
+  release:
+    name: 生成 Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 提取版本号
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+
+      - name: 生成 Release Notes
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          generate_release_notes: true
+          name: Release v${{ steps.version.outputs.version }}
+
+  build-and-deploy:
+    name: 构建并部署
+    needs: release
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'production' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 设置 Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      # ---- 构建阶段 ----
+      - name: 安装后端依赖
+        run: npm ci
+        working-directory: server
+
+      - name: 安装前端依赖
+        run: npm ci
+        working-directory: client
+
+      - name: 构建前端
+        run: npm run build
+        working-directory: client
+        env:
+          NODE_ENV: production
+
+      # ---- 部署阶段 ----
+      - name: SSH 部署到服务器
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || '22' }}
+          script: |
+            # 进入项目目录
+            cd ${{ secrets.DEPLOY_PATH }}
+
+            # 拉取最新代码
+            git fetch --tags --force
+            git checkout ${{ github.ref_name }} 2>/dev/null || git checkout main
+
+            # 保存当前 .env
+            if [ -f server/.env ]; then
+              cp server/.env /tmp/.env.backup
+            fi
+
+            # 执行部署脚本
+            bash deploy/deploy.sh production
+
+            # 恢复 .env
+            if [ -f /tmp/.env.backup ]; then
+              mv /tmp/.env.backup server/.env
+            fi
+
+            # 查看部署状态
+            pm2 status
+
+      - name: 健康检查
+        id: healthcheck
+        run: |
+          for i in $(seq 1 12); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.DEPLOY_HOST }}/api/health || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ 部署成功！服务运行正常"
+              echo "status=success" >> $GITHUB_OUTPUT
+              break
+            fi
+            echo "等待服务启动... ($i/12)"
+            sleep 5
+          done
+          if [ "$STATUS" != "200" ]; then
+            echo "❌ 健康检查失败"
+            echo "status=failed" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: 部署成功通知 - 企业微信
+        if: success() && env.WECOM_WEBHOOK_URL != ''
+        continue-on-error: true
+        env:
+          WECOM_WEBHOOK_URL: ${{ secrets.WECOM_WEBHOOK_URL }}
+          VERSION: ${{ needs.release.outputs.version || 'manual' }}
+        run: |
+          curl -s -X POST "$WECOM_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "msgtype": "markdown",
+              "markdown": {
+                "content": "### 🚀 部署通知\n\n- **项目**: AI 智能选基金\n- **版本**: ${{ github.ref_name }}\n- **环境**: ${{ github.event.inputs.environment || 'production' }}\n- **状态**: ✅ 成功\n- **提交**: ${{ github.sha }}\n- **部署人**: ${{ github.actor }}"
+              }
+            }'
