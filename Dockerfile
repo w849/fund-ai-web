@@ -1,48 +1,32 @@
-# ==========================================
-# AI 智能选基金 - Docker 多阶段构建
-# ==========================================
-
-# ---- 第一阶段：构建前端 ----
+# ========== 构建阶段：编译前端 ==========
 FROM node:18-alpine AS builder
 
-WORKDIR /app
+WORKDIR /build
 
 # 安装前端依赖
-COPY client/package.json client/package-lock.json ./client/
+COPY client/package*.json client/
 RUN cd client && npm ci
 
-# 构建前端
-COPY client/ ./client/
+# 复制前端源码并构建
+COPY client/ client/
 RUN cd client && npm run build
 
-# ---- 第二阶段：运行后端 ----
-FROM node:18-alpine AS runner
+# ========== 运行阶段 ==========
+FROM node:18-alpine
 
 WORKDIR /app
 
-# 安装系统依赖（如需）
-RUN apk add --no-cache tini
+# 安装生产依赖
+COPY server/package*.json server/
+RUN cd server && npm ci --only=production
 
-# 复制后端代码
-COPY server/package.json server/package-lock.json ./server/
-RUN cd server && npm ci --production
-
-COPY server/ ./server/
+# 复制后端源码
+COPY server/ server/
 
 # 复制前端构建产物
-COPY --from=builder /app/client/dist ./client/dist
-
-# 创建数据目录和日志目录
-RUN mkdir -p /app/server/data /app/server/logs
-
-# 环境变量
-ENV NODE_ENV=production
-ENV PORT=3000
+COPY --from=builder /build/client/dist /app/client/dist
 
 EXPOSE 3000
 
-# 使用 tini 作为 init 进程
-ENTRYPOINT ["/sbin/tini", "--"]
-
-# 启动服务
-CMD ["node", "server/src/app.js"]
+WORKDIR /app/server
+CMD ["node", "src/app.js"]
